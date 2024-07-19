@@ -1,0 +1,5 @@
+*.pt
+
+logs
+data
+__pycache__
