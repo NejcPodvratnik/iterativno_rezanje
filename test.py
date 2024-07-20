@@ -1,11 +1,7 @@
-import torch
-
-# Creating a sample tensor
-tensor = torch.tensor([[0, 1, 0], 
-                       [2, 0, 3], 
-                       [0, 0, 4]])
-
-# Extracting non-zero elements
-alive = tensor[tensor.nonzero(as_tuple=True)]
-
-print(alive)
+from tqdm import tqdm
+# from tqdm.auto import tqdm  # notebook compatible
+import time
+for i1 in tqdm(range(5)):
+    for i2 in tqdm(range(300), leave=False):
+        # do something, e.g. sleep
+        time.sleep(0.01)

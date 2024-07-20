@@ -16,8 +16,16 @@ class IterativePruning():
         self.model = model
         self.model = self.model.to(device)
 
+        self.model.apply(self.weights_init)
+
         self.mask = self.create_mask()
         self.init_weights, self.init_biases = self.copy_initial_state()
+
+    def weights_init(self, m):
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
+            if m.bias is not None:
+                torch.nn.init.normal_(m.bias, mean = 0.0, std = 0.1)
 
     def create_mask(self):
         self.mask = []
@@ -48,15 +56,35 @@ class IterativePruning():
         acc = []
         sp = []
 
-        for _ in range(30):
+        steps = 30
+
+        for step in range(steps):
             optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
             self.early_stopper = EarlyStopper(patience, min_delta)
 
             #for init in self.init_weights:
             #    print(init)
 
+            print(f" ===| Prune iteration {step + 1}/{steps} |=== ")
+
+            sum_zeros, sum_nonzeros, sum_all = 0, 0, 0
+            for name, param in self.model.named_parameters():
+                if "weight" in name or "bias" in name:
+                    zeros = param.data[param.data == 0.0].numel()
+                    nonzeros = param.data[param.data != 0.0].numel()
+                    all = param.data.numel()
+                    pruned = (nonzeros / all) * 100
+                    sum_zeros, sum_nonzeros, sum_all = sum_zeros + zeros, sum_nonzeros + nonzeros, sum_all + all
+                    print(f"{name:20} Zeros: {zeros:8} Nonzeros: {nonzeros:8} All: {all:8} Remaining: {pruned:8.2f}%")
+
+            sum_pruned = (sum_nonzeros / sum_all) * 100
+            name = "all"
+            print(f"{name:20} Zeros: {sum_zeros:8} Nonzeros: {sum_nonzeros:8} All: {sum_all:8} Remaining: {sum_pruned:8.2f}%")
+
             self.train(optimizer, loss_fn, train_loader, val_loader, num_epochs)
             self.test(test_loader, acc, sp)
+
+            ## Tukaj bi lahko shranil model
             
             i = 0
             for name, param in self.model.named_parameters():
@@ -80,10 +108,18 @@ class IterativePruning():
         #writer.close()
 
     def train(self, optimizer, loss_fn, train_loader, val_loader, num_epochs):
+        bar = tqdm()
+        text = f"Epoch: -, loss: -.----, val_loss: -.----"
         for epoch in range(num_epochs):
             self.model.train()
             losses = 0.0
-            for image, target in tqdm(train_loader, total=len(train_loader.dataset)//train_loader.batch_size):
+
+            bar.total = len(train_loader.dataset)//train_loader.batch_size
+            bar.refresh()
+            bar.reset()
+            bar.set_description(text + f" Training")
+
+            for image, target in train_loader:
                 image = image.to(device)
                 target = target.to(device)
 
@@ -97,34 +133,40 @@ class IterativePruning():
                 self.freeze_pruned_weights()
 
                 optimizer.step()
-
+                bar.update()
+            
             self.model.eval()
             val_losses = 0.0
+
+            bar.total = len(val_loader.dataset)//val_loader.batch_size
+            bar.refresh()
+            bar.reset()
+            bar.set_description(text + f" Validating")
+
             with torch.no_grad():
-                for image, target in tqdm(val_loader, total=len(val_loader.dataset)//val_loader.batch_size):
+                for image, target in val_loader:
                     image = image.to(device)
                     target = target.to(device)
                     
                     pred = self.model(image)
                     val_loss = loss_fn(pred, target)
                     val_losses += val_loss
+                    bar.update()
 
             losses /= (len(train_loader.dataset)//train_loader.batch_size)
             val_losses /= (len(val_loader.dataset)//val_loader.batch_size)
 
-            #writer.add_scalar("Loss/train", losses, epoch)
-            #writer.add_scalar("Loss/val", val_losses, epoch)
-            print(f"Epoch: {epoch + 1}/{num_epochs}, loss: {losses :.4f}, val_loss: {val_losses :.4f}")
+            text = f"Epoch: {epoch + 1}, loss: {losses :.4f}, val_loss: {val_losses :.4f}"
 
             if self.early_stopper.early_stop(val_losses):
-                print(f"Training has ended due to early stoppage at epoch {epoch + 1}.")             
+                #print(f"Training has ended due to early stoppage at epoch {epoch + 1}.")             
                 break
 
     def test(self, test_loader, acc, sp):
         self.model.eval()
 
         correct = 0
-        for image, target in tqdm(test_loader, total=len(test_loader.dataset)//test_loader.batch_size):
+        for image, target in tqdm(test_loader, total=len(test_loader.dataset)//test_loader.batch_size, desc="Testing"):
             image = image.to(device)
             target = target.to(device)
 
@@ -136,4 +178,4 @@ class IterativePruning():
                     correct += 1
         acc += [correct / len(test_loader.dataset)]
         sp += [torch.sum((self.mask[0]/150) * 100).cpu().numpy()]
-        print(f"Točnost: {correct / len(test_loader.dataset) :.3f}, Redkost: {torch.sum(self.mask[0]/235200) :.3f} \n\n\n")
+        print(f"Accuracy: {correct / len(test_loader.dataset) :.3f}\n\n")
