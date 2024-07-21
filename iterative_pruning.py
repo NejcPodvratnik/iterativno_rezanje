@@ -1,5 +1,7 @@
+import os
 import torch
 import copy
+import datetime
 import numpy as np
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
@@ -20,12 +22,19 @@ class IterativePruning():
 
         self.mask = self.create_mask()
         self.init_weights, self.init_biases = self.copy_initial_state()
+        
+        if not os.path.exists("./models"):
+            os.makedirs("./models")
+
+        self.model_filepath = f"./models/{self.model.__class__.__name__}_{datetime.datetime.now():%Y%m%d%H%M%S}"
+        os.makedirs(self.model_filepath)
 
     def weights_init(self, m):
         if isinstance(m, torch.nn.Linear):
-            torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
-            if m.bias is not None:
-                torch.nn.init.normal_(m.bias, mean = 0.0, std = 0.1)
+            #torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
+            torch.nn.init.xavier_normal_(m.weight)
+            #if m.bias is not None:
+                #torch.nn.init.normal_(m.bias, mean = 0.0, std = 0.1)
 
     def create_mask(self):
         self.mask = []
@@ -52,9 +61,6 @@ class IterativePruning():
         return init_weights, init_biases
 
     def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, patience, min_delta, per):
-        #writer = SummaryWriter("./logs")
-        acc = []
-        sp = []
 
         steps = 30
 
@@ -62,10 +68,8 @@ class IterativePruning():
             optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
             self.early_stopper = EarlyStopper(patience, min_delta)
 
-            #for init in self.init_weights:
-            #    print(init)
-
             print(f" ===| Prune iteration {step + 1}/{steps} |=== ")
+            print(f"Name                    Zeros Nonzeros      All Nonzeros(%)")
 
             sum_zeros, sum_nonzeros, sum_all = 0, 0, 0
             for name, param in self.model.named_parameters():
@@ -75,16 +79,17 @@ class IterativePruning():
                     all = param.data.numel()
                     pruned = (nonzeros / all) * 100
                     sum_zeros, sum_nonzeros, sum_all = sum_zeros + zeros, sum_nonzeros + nonzeros, sum_all + all
-                    print(f"{name:20} Zeros: {zeros:8} Nonzeros: {nonzeros:8} All: {all:8} Remaining: {pruned:8.2f}%")
+                    print(f"{name:20} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
 
             sum_pruned = (sum_nonzeros / sum_all) * 100
             name = "all"
-            print(f"{name:20} Zeros: {sum_zeros:8} Nonzeros: {sum_nonzeros:8} All: {sum_all:8} Remaining: {sum_pruned:8.2f}%")
+            print(f"{name:20} {sum_zeros:8} {sum_nonzeros:8} {sum_all:8} {sum_pruned:10.2f}%")
 
             self.train(optimizer, loss_fn, train_loader, val_loader, num_epochs)
-            self.test(test_loader, acc, sp)
+            acc = self.test(test_loader)
 
-            ## Tukaj bi lahko shranil model
+            filename = f"model_{step + 1}_a{acc * 100 :.1f}_p{sum_pruned :.2f}".replace(".","_")
+            torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
             
             i = 0
             for name, param in self.model.named_parameters():
@@ -97,15 +102,11 @@ class IterativePruning():
                     self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
                     param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
                     i += 1
-                    #print(param.data)
             i = 0
             for name, param in self.model.named_parameters():
                 if "bias" in name:
                     param.data = copy.deepcopy(self.init_biases[i])
                     i += 1
-        return acc, sp
-        #writer.flush()
-        #writer.close()
 
     def train(self, optimizer, loss_fn, train_loader, val_loader, num_epochs):
         bar = tqdm()
@@ -162,7 +163,7 @@ class IterativePruning():
                 #print(f"Training has ended due to early stoppage at epoch {epoch + 1}.")             
                 break
 
-    def test(self, test_loader, acc, sp):
+    def test(self, test_loader):
         self.model.eval()
 
         correct = 0
@@ -176,6 +177,6 @@ class IterativePruning():
             for i in range(len(predicted)):
                 if predicted[i] == target[i]:
                     correct += 1
-        acc += [correct / len(test_loader.dataset)]
-        sp += [torch.sum((self.mask[0]/150) * 100).cpu().numpy()]
-        print(f"Accuracy: {correct / len(test_loader.dataset) :.3f}\n\n")
+        acc = (correct / len(test_loader.dataset))
+        print(f"Accuracy: {acc :.3f}\n\n")
+        return acc
