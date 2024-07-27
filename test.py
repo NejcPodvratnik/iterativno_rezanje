@@ -1,7 +1,10 @@
-from tqdm import tqdm
-# from tqdm.auto import tqdm  # notebook compatible
-import time
-for i1 in tqdm(range(5)):
-    for i2 in tqdm(range(300), leave=False):
-        # do something, e.g. sleep
-        time.sleep(0.01)
+import torch
+
+# Creating a tensor of integers
+tensor_int = torch.tensor([1, 2, 3, 4])
+
+# Converting to float using .float() method
+tensor_float = tensor_int.float().numpy()
+
+print(tensor_float)
+print(tensor_float.dtype)

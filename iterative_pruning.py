@@ -7,6 +7,7 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 
 from early_stopper import EarlyStopper
+from stats_tracker import StatsTracker
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -62,9 +63,14 @@ class IterativePruning():
 
     def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, patience, min_delta, per):
 
-        steps = 30
+        steps = 2
+
+        self.stats_tracker = StatsTracker(self.model.__class__.__name__, lr, steps, patience, min_delta, per)
 
         for step in range(steps):
+
+            self.stats_tracker.add_iteration()
+
             optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
             self.early_stopper = EarlyStopper(patience, min_delta)
 
@@ -79,15 +85,18 @@ class IterativePruning():
                     all = param.data.numel()
                     pruned = (nonzeros / all) * 100
                     sum_zeros, sum_nonzeros, sum_all = sum_zeros + zeros, sum_nonzeros + nonzeros, sum_all + all
+                    self.stats_tracker.add_layer(name, zeros, nonzeros, all, pruned)
                     print(f"{name:20} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
 
             sum_pruned = (sum_nonzeros / sum_all) * 100
             name = "all"
+            self.stats_tracker.add_layer(name, sum_zeros, sum_nonzeros, sum_all, sum_pruned)
             print(f"{name:20} {sum_zeros:8} {sum_nonzeros:8} {sum_all:8} {sum_pruned:10.2f}%")
 
             self.train(optimizer, loss_fn, train_loader, val_loader, num_epochs)
             acc = self.test(test_loader)
 
+            self.stats_tracker.add_test_acc(acc * 100)
             filename = f"model_{step + 1}_a{acc * 100 :.1f}_p{sum_pruned :.2f}".replace(".","_")
             torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
             
@@ -107,6 +116,7 @@ class IterativePruning():
                 if "bias" in name:
                     param.data = copy.deepcopy(self.init_biases[i])
                     i += 1
+        self.stats_tracker.save_to_file(self.model_filepath + "/stats.json")
 
     def train(self, optimizer, loss_fn, train_loader, val_loader, num_epochs):
         bar = tqdm()
@@ -158,6 +168,7 @@ class IterativePruning():
             val_losses /= (len(val_loader.dataset)//val_loader.batch_size)
 
             text = f"Epoch: {epoch + 1}, loss: {losses :.4f}, val_loss: {val_losses :.4f}"
+            self.stats_tracker.add_epoch(epoch + 1, losses.item(), val_losses.item())
 
             if self.early_stopper.early_stop(val_losses):
                 #print(f"Training has ended due to early stoppage at epoch {epoch + 1}.")             
