@@ -19,7 +19,7 @@ class IterativePruning():
         self.model = model
         self.model = self.model.to(device)
 
-        self.model.apply(self.weights_init)
+        #self.model.apply(self.weights_init)
 
         self.mask = self.create_mask()
         self.init_weights, self.init_biases = self.copy_initial_state()
@@ -31,9 +31,9 @@ class IterativePruning():
         os.makedirs(self.model_filepath)
 
     def weights_init(self, m):
-        if isinstance(m, torch.nn.Linear):
-            #torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
-            torch.nn.init.xavier_normal_(m.weight)
+        if isinstance(m, torch.nn.Linear) or isinstance(m, torch.nn.Conv2d): ## BATCH NORM ŠE!
+            torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
+            #torch.nn.init.xavier_normal_(m.weight)
             #if m.bias is not None:
                 #torch.nn.init.normal_(m.bias, mean = 0.0, std = 0.1)
 
@@ -63,7 +63,8 @@ class IterativePruning():
 
     def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, patience, min_delta, per):
 
-        steps = 2
+        steps = 10
+        pm = "global"
 
         self.stats_tracker = StatsTracker(self.model.__class__.__name__, lr, steps, patience, min_delta, per)
 
@@ -75,23 +76,23 @@ class IterativePruning():
             self.early_stopper = EarlyStopper(patience, min_delta)
 
             print(f" ===| Prune iteration {step + 1}/{steps} |=== ")
-            print(f"Name                    Zeros Nonzeros      All Nonzeros(%)")
+            print(f"Name                              Zeros Nonzeros      All Nonzeros(%)")
 
             sum_zeros, sum_nonzeros, sum_all = 0, 0, 0
             for name, param in self.model.named_parameters():
-                if "weight" in name or "bias" in name:
+                if "weight" in name : #or "bias" in name:
                     zeros = param.data[param.data == 0.0].numel()
                     nonzeros = param.data[param.data != 0.0].numel()
                     all = param.data.numel()
                     pruned = (nonzeros / all) * 100
                     sum_zeros, sum_nonzeros, sum_all = sum_zeros + zeros, sum_nonzeros + nonzeros, sum_all + all
                     self.stats_tracker.add_layer(name, zeros, nonzeros, all, pruned)
-                    print(f"{name:20} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
+                    #print(f"{name:30} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
 
             sum_pruned = (sum_nonzeros / sum_all) * 100
             name = "all"
             self.stats_tracker.add_layer(name, sum_zeros, sum_nonzeros, sum_all, sum_pruned)
-            print(f"{name:20} {sum_zeros:8} {sum_nonzeros:8} {sum_all:8} {sum_pruned:10.2f}%")
+            print(f"{name:30} {sum_zeros:8} {sum_nonzeros:8} {sum_all:8} {sum_pruned:10.2f}%")
 
             self.train(optimizer, loss_fn, train_loader, val_loader, num_epochs)
             acc = self.test(test_loader)
@@ -99,18 +100,34 @@ class IterativePruning():
             self.stats_tracker.add_test_acc(acc * 100)
             filename = f"model_{step + 1}_a{acc * 100 :.1f}_p{sum_pruned :.2f}".replace(".","_")
             torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
-            
-            i = 0
-            for name, param in self.model.named_parameters():
-                if "weight" in name:
-                    alive_weights = param.data[param.data.nonzero(as_tuple=True)] # s tem ustvarimo 1d tenzor uteži, ki še niso bile odstranjene          
-                    alive_weights = torch.abs(alive_weights)
-                    sorted_weights = torch.argsort(alive_weights)
-                    cut_per =  per if len(self.mask) - 1 != i else per / 2
-                    pruned_weight_threshold = alive_weights[sorted_weights[int(len(sorted_weights) * cut_per)]]
-                    self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
-                    param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
-                    i += 1
+
+            if pm == "local":            
+                i = 0
+                for name, param in self.model.named_parameters():
+                    if "weight" in name:
+                        alive_weights = param.data[param.data.nonzero(as_tuple=True)] # s tem ustvarimo 1d tenzor uteži, ki še niso bile odstranjene          
+                        alive_weights = torch.abs(alive_weights)
+                        sorted_weights = torch.argsort(alive_weights)
+                        cut_per =  per #if len(self.mask) - 1 != i else per / 2  ## POMEMBNO: ODSTRANIKL SEM CUTANJE ZA ZADNJO PLAST
+                        pruned_weight_threshold = alive_weights[sorted_weights[int(len(sorted_weights) * cut_per)]]
+                        self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
+                        param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                        i += 1
+            elif pm == "global":
+                all_alive_weights = torch.empty(0).to(device)
+                for name, param in self.model.named_parameters():
+                    if "weight" in name:
+                        all_alive_weights = torch.cat((all_alive_weights, param.data[param.data.nonzero(as_tuple=True)]), dim = 0)
+
+                all_alive_weights = torch.abs(all_alive_weights)
+                all_sorted_weights = torch.argsort(all_alive_weights)
+                pruned_weight_threshold = all_alive_weights[all_sorted_weights[int(len(all_sorted_weights) * per)]]
+                i = 0
+                for name, param in self.model.named_parameters():
+                    if "weight" in name:
+                        self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
+                        param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                        i += 1
             i = 0
             for name, param in self.model.named_parameters():
                 if "bias" in name:
@@ -171,6 +188,7 @@ class IterativePruning():
             self.stats_tracker.add_epoch(epoch + 1, losses.item(), val_losses.item())
 
             if self.early_stopper.early_stop(val_losses):
+                bar.set_description(text + f" Validating")
                 #print(f"Training has ended due to early stoppage at epoch {epoch + 1}.")             
                 break
 

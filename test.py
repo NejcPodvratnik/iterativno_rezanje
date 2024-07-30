@@ -1,10 +1,19 @@
 import torch
+import numpy as np
 
-# Creating a tensor of integers
-tensor_int = torch.tensor([1, 2, 3, 4])
+x = torch.randn(2,3)
+print(np.shape(x))
+print(x)
+x = x[x.nonzero(as_tuple=True)]
+print(np.shape(x))
+print(x)
 
-# Converting to float using .float() method
-tensor_float = tensor_int.float().numpy()
+all_alive_weights = torch.empty(0)
+all_alive_weights = torch.cat((all_alive_weights,x), dim = 0)
+all_alive_weights = torch.cat((all_alive_weights,all_alive_weights), dim = 0)
+all_alive_weights = torch.cat((all_alive_weights,all_alive_weights), dim = 0)
+all_alive_weights = torch.cat((all_alive_weights,all_alive_weights), dim = 0)
+print(np.shape(all_alive_weights))
+print(all_alive_weights)
 
-print(tensor_float)
-print(tensor_float.dtype)
+
