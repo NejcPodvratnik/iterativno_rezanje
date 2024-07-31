@@ -1,3 +1,5 @@
+import torch
+
 class EarlyStopper:
     def __init__(self, patience, min_delta):
         self.patience = patience
@@ -5,8 +7,9 @@ class EarlyStopper:
         self.counter = 0
         self.min_validation_loss = float("inf")
 
-    def early_stop(self, validation_loss):
+    def early_stop(self, validation_loss, model):
         if validation_loss < self.min_validation_loss:
+            torch.save(model.state_dict(), "./temp_checkpoint.pt")
             self.min_validation_loss = validation_loss
             self.counter = 0
         elif validation_loss > (self.min_validation_loss + self.min_delta):

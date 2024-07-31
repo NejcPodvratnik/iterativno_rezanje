@@ -30,10 +30,11 @@ def getRealWasteDataset():
 
 
 class RealWasteDataset(torch.utils.data.Dataset):
-    def __init__(self, inputs, targets) -> None:
+    def __init__(self, inputs, targets, image_size) -> None:
         super().__init__()
         self.inputs = inputs
         self.targets = targets
+        self.image_size = image_size
 
     def __len__(self):
         return len(self.inputs)
@@ -42,9 +43,13 @@ class RealWasteDataset(torch.utils.data.Dataset):
         input = cv2.imread(self.inputs[index][0])
         target = self.targets[index]
 
+        input = cv2.resize(input, self.image_size)
+
         if self.inputs[index][1] == 1:
+            print("flip")
             input = cv2.flip(input, 1)
         elif self.inputs[index][1] == 2:
+            print("rotate")
             input = cv2.rotate(input, cv2.ROTATE_90_CLOCKWISE)
 
         input = cv2.cvtColor(input, cv2.COLOR_BGR2RGB)

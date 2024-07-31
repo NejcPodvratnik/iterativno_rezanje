@@ -1,19 +1,18 @@
 import torch
-import numpy as np
+import torchinfo
+from torchvision.models import alexnet
 
-x = torch.randn(2,3)
-print(np.shape(x))
-print(x)
-x = x[x.nonzero(as_tuple=True)]
-print(np.shape(x))
-print(x)
+model = alexnet()
 
-all_alive_weights = torch.empty(0)
-all_alive_weights = torch.cat((all_alive_weights,x), dim = 0)
-all_alive_weights = torch.cat((all_alive_weights,all_alive_weights), dim = 0)
-all_alive_weights = torch.cat((all_alive_weights,all_alive_weights), dim = 0)
-all_alive_weights = torch.cat((all_alive_weights,all_alive_weights), dim = 0)
-print(np.shape(all_alive_weights))
-print(all_alive_weights)
+num_ftrs = model.classifier[6].in_features
+model.classifier[6] = torch.nn.Linear(num_ftrs, 8)
+
+torchinfo.summary(model, (4, 3, 524, 524))
+
+for i, data in enumerate(model.named_parameters()):
+    name, param = data
+    if "weight" in name:
+        print(name)
+        print(len(param.flatten()))
 
 
