@@ -58,15 +58,16 @@ class LeNet(torch.nn.Module):
         return x               
 
 class LeNet300(torch.nn.Module):
-    def __init__(self, n_classes):
+    def __init__(self, input_dim, n_classes):
         super(LeNet300, self).__init__()
-        self.linear_1 = torch.nn.Linear(28*28, 300)  
+        self.linear_1 = torch.nn.Linear(input_dim, 300)  
         self.linear_2 = torch.nn.Linear(300, 100)
         self.linear_3 = torch.nn.Linear(100, n_classes)
         self.relu = torch.nn.ReLU()
+        self.input_dim = input_dim
     
     def forward(self, x):
-        x = x.view(-1, 28*28) 
+        x = x.view(-1, self.input_dim) 
         x = self.linear_1(x)
         x = self.relu(x)
         x = self.linear_2(x)

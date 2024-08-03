@@ -30,11 +30,28 @@ def getRealWasteDataset():
 
 
 class RealWasteDataset(torch.utils.data.Dataset):
-    def __init__(self, inputs, targets, image_size) -> None:
+    def __init__(self, dataset_path, image_size) -> None:
         super().__init__()
-        self.inputs = inputs
-        self.targets = targets
         self.image_size = image_size
+
+        dataset_sub_paths = [os.path.join(dataset_path, name) for name in os.listdir(dataset_path)]
+
+        self.inputs, string_targets = [], []
+        for path in dataset_sub_paths:
+            for root, _, files in os.walk(path):
+                for i in range(len(files) - 1):
+                    self.inputs += [[os.path.join(root, files[i]), 0]]
+                    #inputs += [[os.path.join(root, files[i]), 1]]
+                    #inputs += [[os.path.join(root, files[i]), 2]]
+                    string_targets += [root.split("\\")[-1]]
+                    #string_targets += [root.split("\\")[-1]]
+                    #string_targets += [root.split("\\")[-1]]
+
+        self.inputs, string_targets = np.array(self.inputs), np.array(string_targets)
+
+        self.label_encoder = LabelEncoder()
+        self.targets = self.label_encoder.fit_transform(string_targets)
+        self.targets = self.targets.reshape(-1, 1)
 
     def __len__(self):
         return len(self.inputs)
@@ -58,5 +75,5 @@ class RealWasteDataset(torch.utils.data.Dataset):
         target = torch.from_numpy(target).squeeze()
         
         input = input.type(torch.float32) / 255.
-        input = torchvision.transforms.functional.normalize(input, mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
+        #input = torchvision.transforms.functional.normalize(input, mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
         return input, target

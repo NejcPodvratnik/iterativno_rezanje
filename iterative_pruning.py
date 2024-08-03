@@ -79,7 +79,7 @@ class IterativePruning():
             i = 0
             all_alive_weights = torch.empty(0).to(device)
             for name, param in self.model.named_parameters():
-                if "weight" in name and len(self.mask) - 1 != i:  #and "bn" not in name and "fc" not in name:
+                if "weight" in name and "bn" not in name and "fc" not in name: #and len(self.mask) - 1 != i:  
                     all_alive_weights = torch.cat((all_alive_weights, param.data[param.data.nonzero(as_tuple=True)]), dim = 0)
                     i += 1
             all_alive_weights = torch.abs(all_alive_weights)
@@ -87,11 +87,11 @@ class IterativePruning():
             pruned_weight_threshold = all_alive_weights[all_sorted_weights[int(len(all_sorted_weights) * per)]]
             i = 0
             for name, param in self.model.named_parameters():
-                if "weight" in name and len(self.mask) - 1 != i: # and "bn" not in name and "fc" not in name:
+                if "weight" in name and "bn" not in name and "fc" not in name: #and len(self.mask) - 1 != i:  
                     self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
                     param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
                     i += 1
-                elif "weight" in name and len(self.mask) - 1 == i: #and ("bn" in name or "fc" in name):
+                elif "weight" in name and ("bn" in name or "fc" in name): #and len(self.mask) - 1 == i: 
                     param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
                     i += 1
         i = 0
@@ -123,7 +123,7 @@ class IterativePruning():
                     pruned = (nonzeros / all) * 100
                     sum_zeros, sum_nonzeros, sum_all = sum_zeros + zeros, sum_nonzeros + nonzeros, sum_all + all
                     self.stats_tracker.add_layer(name, zeros, nonzeros, all, pruned)
-                    print(f"{name:30} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
+                    #print(f"{name:30} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
 
             sum_pruned = (sum_nonzeros / sum_all) * 100
             name = "all"
@@ -133,8 +133,8 @@ class IterativePruning():
             self.train(optimizer, loss_fn, train_loader, val_loader, num_epochs)
             acc = self.test(test_loader)
 
-            self.stats_tracker.add_test_acc(acc * 100)
-            filename = f"model_{step + 1}_a{acc * 100 :.1f}_p{sum_pruned :.2f}".replace(".","_")
+            self.stats_tracker.add_test_acc(acc)
+            filename = f"model_{step + 1}_a{acc :.1f}_p{sum_pruned :.2f}".replace(".","_")
             torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
             self.prune_weights(prune_mode, prune_per)
 
@@ -201,17 +201,30 @@ class IterativePruning():
 
     def test(self, test_loader):
         self.model.eval()
+        test_losses = 0.0
+        loss_fn = torch.nn.L1Loss()
         correct = 0
-        for image, target in tqdm(test_loader, total=len(test_loader.dataset)//test_loader.batch_size, desc="Testing"):
-            image = image.to(device)
-            target = target.to(device)
+        with torch.no_grad():
+            for image, target in tqdm(test_loader, total=len(test_loader.dataset)//test_loader.batch_size, desc="Testing"):
+                image = image.to(device)
+                target = target.to(device)
 
-            pred = self.model(image)
-            predicted = pred.argmax(1)
+                pred = self.model(image)
 
-            for i in range(len(predicted)):
-                if predicted[i] == target[i]:
-                    correct += 1
-        acc = (correct / len(test_loader.dataset))
-        print(f"Accuracy: {acc :.3f}\n\n")
-        return acc
+                if np.shape(pred)[1] == 1:
+                    test_loss = loss_fn(pred, target)
+                    test_losses += test_loss
+                else:
+                    predicted = pred.argmax(1)
+                    for i in range(len(predicted)):
+                        if predicted[i] == target[i]:
+                            correct += 1
+
+        if test_losses != 0.0:
+            test_losses /= (len(test_loader.dataset)//test_loader.batch_size)
+            print(f"MAE: {test_losses :.4f}")
+            return test_losses.item()
+        else:
+            acc = (correct / len(test_loader.dataset))
+            print(f"Accuracy: {acc :.3f}\n\n")
+            return acc * 100
