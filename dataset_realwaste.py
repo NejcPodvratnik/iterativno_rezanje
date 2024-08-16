@@ -15,43 +15,42 @@ def getRealWasteDataset():
         for root, _, files in os.walk(path):
             for i in range(len(files) - 1):
                 inputs += [[os.path.join(root, files[i]), 0]]
-                #inputs += [[os.path.join(root, files[i]), 1]]
-                #inputs += [[os.path.join(root, files[i]), 2]]
                 string_targets += [root.split("\\")[-1]]
-                #string_targets += [root.split("\\")[-1]]
-                #string_targets += [root.split("\\")[-1]]
 
     inputs, string_targets = np.array(inputs), np.array(string_targets)
 
     label_encoder = LabelEncoder()
     integer_targets = label_encoder.fit_transform(string_targets)
     integer_targets = integer_targets.reshape(-1, 1)
+
+    permutation = np.random.permutation(len(inputs))
+    inputs = inputs[permutation]
+    integer_targets = integer_targets[permutation]
+
     return inputs, integer_targets, label_encoder
 
 
 class RealWasteDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_path, image_size) -> None:
+    def __init__(self, inputs, targets, image_size, augment) -> None:
         super().__init__()
         self.image_size = image_size
+        self.augment = augment
+        self.inputs = inputs
+        self.targets = targets
 
-        dataset_sub_paths = [os.path.join(dataset_path, name) for name in os.listdir(dataset_path)]
+        if augment:
+            augmented_inputs = []
+            augmented_targets = []
+            for i, input in enumerate(inputs):
+                augmented_inputs += [[input[0], 0]]
+                augmented_inputs += [[input[0], 1]]
+                augmented_inputs += [[input[0], 2]]
+                augmented_targets += [targets[i]]
+                augmented_targets += [targets[i]]
+                augmented_targets += [targets[i]]
 
-        self.inputs, string_targets = [], []
-        for path in dataset_sub_paths:
-            for root, _, files in os.walk(path):
-                for i in range(len(files) - 1):
-                    self.inputs += [[os.path.join(root, files[i]), 0]]
-                    #inputs += [[os.path.join(root, files[i]), 1]]
-                    #inputs += [[os.path.join(root, files[i]), 2]]
-                    string_targets += [root.split("\\")[-1]]
-                    #string_targets += [root.split("\\")[-1]]
-                    #string_targets += [root.split("\\")[-1]]
-
-        self.inputs, string_targets = np.array(self.inputs), np.array(string_targets)
-
-        self.label_encoder = LabelEncoder()
-        self.targets = self.label_encoder.fit_transform(string_targets)
-        self.targets = self.targets.reshape(-1, 1)
+            self.inputs = np.array(augmented_inputs)
+            self.targets = np.array(augmented_targets)
 
     def __len__(self):
         return len(self.inputs)
@@ -61,12 +60,10 @@ class RealWasteDataset(torch.utils.data.Dataset):
         target = self.targets[index]
 
         input = cv2.resize(input, self.image_size)
-
-        if self.inputs[index][1] == 1:
-            print("flip")
+        
+        if self.inputs[index][1] == "1":
             input = cv2.flip(input, 1)
-        elif self.inputs[index][1] == 2:
-            print("rotate")
+        elif self.inputs[index][1] == "2":
             input = cv2.rotate(input, cv2.ROTATE_90_CLOCKWISE)
 
         input = cv2.cvtColor(input, cv2.COLOR_BGR2RGB)

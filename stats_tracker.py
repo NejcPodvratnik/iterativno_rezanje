@@ -1,20 +1,20 @@
 import json
 
 class Layer():
-    def __init__(self, name, zeros, nonzeros, all, nonzeros_per):
+    def __init__(self, name, freezed, active, total, freezed_per):
         self.name = name
-        self.zeros = zeros
-        self.nonzeros = nonzeros
-        self.all = all
-        self.nonzeros_per = nonzeros_per
+        self.freezed = freezed
+        self.active = active
+        self.total = total
+        self.freezed_per = freezed_per
 
     def to_dict(self):
         return {
             "name": self.name,
-            "zeros": self.zeros,
-            "nonzeros": self.nonzeros,
-            "all": self.all,
-            "nonzeros_per": self.nonzeros_per
+            "freezed": self.freezed,
+            "active": self.active,
+            "total": self.total,
+            "freezed_per": self.freezed_per
         }
 
 class Epoch():
@@ -72,8 +72,8 @@ class StatsTracker():
     def add_iteration(self):
         self.iterations += [Iteration(len(self.iterations) + 1)]
 
-    def add_layer(self, name, zeros, nonzeros, all, nonzeros_per):
-        self.iterations[len(self.iterations) - 1].model_layers += [Layer(name, zeros, nonzeros, all, nonzeros_per)]
+    def add_layer(self, name,  freezed, active, total, freezed_per):
+        self.iterations[len(self.iterations) - 1].model_layers += [Layer(name,  freezed, active, total, freezed_per)]
     
     def add_epoch(self, index, loss, val_loss):
         self.iterations[len(self.iterations) - 1].epochs += [Epoch(index, loss, val_loss)]

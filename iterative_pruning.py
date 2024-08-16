@@ -32,11 +32,13 @@ class IterativePruning():
         os.makedirs(self.model_filepath)
 
     def weights_init(self, m):
-        if isinstance(m, torch.nn.Linear) or isinstance(m, torch.nn.Conv2d) or isinstance(m, torch.nn.BatchNorm2d):
-            torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
-            #torch.nn.init.xavier_normal_(m.weight)
+        if isinstance(m, torch.nn.Linear) or isinstance(m, torch.nn.Conv2d):
+            #torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
+            torch.nn.init.xavier_normal_(m.weight)
             #if m.bias is not None:
                 #torch.nn.init.normal_(m.bias, mean = 0.0, std = 0.1)
+        if isinstance(m, torch.nn.BatchNorm2d):
+            torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
 
     def create_mask(self):
         self.mask = []
@@ -62,45 +64,82 @@ class IterativePruning():
                 init_biases += [copy.deepcopy(param.data)]
         return init_weights, init_biases
 
-    def prune_weights(self, prune_mode, per):
-        if prune_mode == "local":            
-            i = 0
-            for name, param in self.model.named_parameters():
-                if "weight" in name:
-                    alive_weights = param.data[param.data.nonzero(as_tuple=True)] # s tem ustvarimo 1d tenzor uteži, ki še niso bile odstranjene          
-                    alive_weights = torch.abs(alive_weights)
-                    sorted_weights = torch.argsort(alive_weights)
-                    cut_per =  per if len(self.mask) - 1 != i else per / 2  ## POMEMBNO: ODSTRANIKL SEM CUTANJE ZA ZADNJO PLAST
-                    pruned_weight_threshold = alive_weights[sorted_weights[int(len(sorted_weights) * cut_per)]]
-                    self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
-                    param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
-                    i += 1
-        elif prune_mode == "global":
-            i = 0
-            all_alive_weights = torch.empty(0).to(device)
-            for name, param in self.model.named_parameters():
-                if "weight" in name and "bn" not in name and "fc" not in name: #and len(self.mask) - 1 != i:  
-                    all_alive_weights = torch.cat((all_alive_weights, param.data[param.data.nonzero(as_tuple=True)]), dim = 0)
-                    i += 1
-            all_alive_weights = torch.abs(all_alive_weights)
-            all_sorted_weights = torch.argsort(all_alive_weights)
-            pruned_weight_threshold = all_alive_weights[all_sorted_weights[int(len(all_sorted_weights) * per)]]
-            i = 0
-            for name, param in self.model.named_parameters():
-                if "weight" in name and "bn" not in name and "fc" not in name: #and len(self.mask) - 1 != i:  
-                    self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
-                    param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
-                    i += 1
-                elif "weight" in name and ("bn" in name or "fc" in name): #and len(self.mask) - 1 == i: 
-                    param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
-                    i += 1
+    def prune_weights_resnet18(self, per):
+        i = 0
+        all_alive_weights = torch.empty(0).to(device)
+        for name, param in self.model.named_parameters():
+            if "weight" in name and "bn" not in name and "fc" not in name:
+                all_alive_weights = torch.cat((all_alive_weights, param.data[param.data.nonzero(as_tuple=True)]), dim = 0)
+                i += 1
+        all_alive_weights = torch.abs(all_alive_weights)
+        all_sorted_weights = torch.argsort(all_alive_weights)
+        pruned_weight_threshold = all_alive_weights[all_sorted_weights[int(len(all_sorted_weights) * per)]]
+        i = 0
+        for name, param in self.model.named_parameters():
+            if "weight" in name and "bn" not in name and "fc" not in name:
+                self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
+                param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                i += 1
+            elif "weight" in name and ("bn" in name or "fc" in name):
+                param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                i += 1
         i = 0
         for name, param in self.model.named_parameters():
             if "bias" in name:
                 param.data = copy.deepcopy(self.init_biases[i])
                 i += 1
 
-    def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, num_prune_iter, prune_mode, prune_per, patience, min_delta):
+    def prune_weights_alexnet(self, per):
+        i = 0
+        all_alive_weights = torch.empty(0).to(device)
+        for name, param in self.model.named_parameters():
+            if "weight" in name and "features.0" not in name and "classifier.6" not in name:
+                all_alive_weights = torch.cat((all_alive_weights, param.data[param.data.nonzero(as_tuple=True)]), dim = 0)
+                i += 1
+        all_alive_weights = torch.abs(all_alive_weights)
+        all_sorted_weights = torch.argsort(all_alive_weights)
+        pruned_weight_threshold = all_alive_weights[all_sorted_weights[int(len(all_sorted_weights) * per)]]
+        i = 0
+        for name, param in self.model.named_parameters():
+            if "weight" in name and "features.0" not in name and "classifier.6" not in name:
+                self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
+                param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                i += 1
+            elif "weight" in name and ("features.0" in name or "classifier.6" in name):
+                param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                i += 1
+        i = 0
+        for name, param in self.model.named_parameters():
+            if "bias" in name:
+                param.data = copy.deepcopy(self.init_biases[i])
+                i += 1
+
+    def prune_weights_shufflenet_v2_x1_0(self, per):
+        i = 0
+        all_alive_weights = torch.empty(0).to(device)
+        for name, param in self.model.named_parameters():
+            if "weight" in name and np.prod(np.shape(param.data)) > 1000:
+                all_alive_weights = torch.cat((all_alive_weights, param.data[param.data.nonzero(as_tuple=True)]), dim = 0)
+                i += 1
+        all_alive_weights = torch.abs(all_alive_weights)
+        all_sorted_weights = torch.argsort(all_alive_weights)
+        pruned_weight_threshold = all_alive_weights[all_sorted_weights[int(len(all_sorted_weights) * per)]]
+        i = 0
+        for name, param in self.model.named_parameters():
+            if "weight" in name and np.prod(np.shape(param.data)) > 1000:
+                self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
+                param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                i += 1
+            elif "weight" in name and not np.prod(np.shape(param.data)) > 1000:
+                param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                i += 1
+        i = 0
+        for name, param in self.model.named_parameters():
+            if "bias" in name:
+                param.data = copy.deepcopy(self.init_biases[i])
+                i += 1
+
+    def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, num_prune_iter, prune_per, patience, min_delta):
 
         self.stats_tracker = StatsTracker(self.model.__class__.__name__, lr, num_prune_iter, patience, min_delta, prune_per)
 
@@ -112,31 +151,33 @@ class IterativePruning():
             self.early_stopper = EarlyStopper(patience, min_delta)
 
             print(f" ===| Prune iteration {step + 1}/{num_prune_iter} |=== ")
-            print(f"Name                              Zeros Nonzeros      All Nonzeros(%)")
+            print(f"Name                            Freezed   Active    Total   Active(%)")
 
-            sum_zeros, sum_nonzeros, sum_all = 0, 0, 0
+            sum_freezed, sum_active, sum_total = 0, 0, 0
+            i = 0
             for name, param in self.model.named_parameters():
                 if "weight" in name : #or "bias" in name:
-                    zeros = param.data[param.data == 0.0].numel()
-                    nonzeros = param.data[param.data != 0.0].numel()
-                    all = param.data.numel()
-                    pruned = (nonzeros / all) * 100
-                    sum_zeros, sum_nonzeros, sum_all = sum_zeros + zeros, sum_nonzeros + nonzeros, sum_all + all
-                    self.stats_tracker.add_layer(name, zeros, nonzeros, all, pruned)
-                    #print(f"{name:30} {zeros:8} {nonzeros:8} {all:8} {pruned:10.2f}%")
+                    active = int(torch.sum(self.mask[i]))
+                    total = int(np.prod(np.shape(self.mask[i])))
+                    freezed = total - active
+                    active_per = (active / total) * 100
+                    sum_freezed, sum_active, sum_total = sum_freezed + freezed, sum_active + active, sum_total + total
+                    self.stats_tracker.add_layer(name,  freezed, active, total, active_per)
+                    print(f"{name:30} {freezed:8} {active:8} {total:8} {active_per:10.2f}%")
+                    i += 1
 
-            sum_pruned = (sum_nonzeros / sum_all) * 100
-            name = "all"
-            self.stats_tracker.add_layer(name, sum_zeros, sum_nonzeros, sum_all, sum_pruned)
-            print(f"{name:30} {sum_zeros:8} {sum_nonzeros:8} {sum_all:8} {sum_pruned:10.2f}%")
+            sum_active_per = (sum_active / sum_total) * 100
+            name = "total"
+            self.stats_tracker.add_layer(name, sum_freezed, sum_active, sum_total, sum_active_per)
+            print(f"{name:30} {sum_freezed:8} {sum_active:8} {sum_total:8} {sum_active_per:10.2f}%")
 
             self.train(optimizer, loss_fn, train_loader, val_loader, num_epochs)
             acc = self.test(test_loader)
 
             self.stats_tracker.add_test_acc(acc)
-            filename = f"model_{step + 1}_a{acc :.1f}_p{sum_pruned :.2f}".replace(".","_")
+            filename = f"model_{step + 1}_a{acc :.1f}_p{sum_active_per :.2f}".replace(".","_")
             torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
-            self.prune_weights(prune_mode, prune_per)
+            self.prune_weights_shufflenet_v2_x1_0(prune_per)
 
         self.stats_tracker.save_to_file(self.model_filepath + "/stats.json")
 
@@ -228,3 +269,19 @@ class IterativePruning():
             acc = (correct / len(test_loader.dataset))
             print(f"Accuracy: {acc :.3f}\n\n")
             return acc * 100
+        
+
+'''
+        if prune_mode == "local":            
+            i = 0
+            for name, param in self.model.named_parameters():
+                if "weight" in name:
+                    alive_weights = param.data[param.data.nonzero(as_tuple=True)] # s tem ustvarimo 1d tenzor uteži, ki še niso bile odstranjene          
+                    alive_weights = torch.abs(alive_weights)
+                    sorted_weights = torch.argsort(alive_weights)
+                    cut_per =  per if len(self.mask) - 1 != i else per / 2  ## POMEMBNO: ODSTRANIKL SEM CUTANJE ZA ZADNJO PLAST
+                    pruned_weight_threshold = alive_weights[sorted_weights[int(len(sorted_weights) * cut_per)]]
+                    self.mask[i] = torch.where(torch.abs(param.data) < pruned_weight_threshold, 0., self.mask[i])
+                    param.data = copy.deepcopy(self.init_weights[i]) * self.mask[i]
+                    i += 1
+'''
