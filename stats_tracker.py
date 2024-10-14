@@ -48,13 +48,12 @@ class Iteration():
     
 
 class StatsTracker():
-    def __init__(self, model_name, lr, num_iterations, patience, min_delta, per):
+    def __init__(self, model_name, lr, num_iterations, patience, per):
         super().__init__()
         self.model_name = model_name
         self.lr = lr
         self.num_iterations = num_iterations
         self.patience = patience
-        self.min_delta = min_delta
         self.per = per
         self.iterations = []
 
@@ -64,7 +63,6 @@ class StatsTracker():
             "lr": self.lr,
             "num_iterations": self.num_iterations,
             "patience": self.patience,
-            "min_delta": self.min_delta,
             "per": self.per,
             "iterations": [iteration.to_dict() for iteration in self.iterations]
         }

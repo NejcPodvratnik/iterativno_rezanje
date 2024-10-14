@@ -35,10 +35,12 @@ class IterativePruning():
         if isinstance(m, torch.nn.Linear) or isinstance(m, torch.nn.Conv2d):
             #torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
             torch.nn.init.xavier_normal_(m.weight)
-            #if m.bias is not None:
-                #torch.nn.init.normal_(m.bias, mean = 0.0, std = 0.1)
+            if m.bias is not None:
+                torch.nn.init.constant_(m.bias, 0)
         if isinstance(m, torch.nn.BatchNorm2d):
             torch.nn.init.normal_(m.weight, mean = 0.0, std = 0.1)
+            if m.bias is not None:
+                torch.nn.init.constant_(m.bias, 0)
 
     def create_mask(self):
         self.mask = []
@@ -53,6 +55,8 @@ class IterativePruning():
             if 'weight' in name:
                 param.grad.data = param.grad.data * self.mask[i]
                 i += 1
+            elif 'bias' in name:
+                param.grad.data = param.grad.data * 0
 
     def copy_initial_state(self):
         init_weights = []
@@ -139,16 +143,17 @@ class IterativePruning():
                 param.data = copy.deepcopy(self.init_biases[i])
                 i += 1
 
-    def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, num_prune_iter, prune_per, patience, min_delta):
+    def start(self, loss_fn, train_loader, val_loader, test_loader, lr, num_epochs, num_prune_iter, prune_per, patience):
 
-        self.stats_tracker = StatsTracker(self.model.__class__.__name__, lr, num_prune_iter, patience, min_delta, prune_per)
+        self.stats_tracker = StatsTracker(self.model.__class__.__name__, lr, num_prune_iter, patience, prune_per)
 
         for step in range(num_prune_iter):
 
             self.stats_tracker.add_iteration()
 
             optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-            self.early_stopper = EarlyStopper(patience, min_delta)
+            #optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0005)
+            self.early_stopper = EarlyStopper(patience)
 
             print(f" ===| Prune iteration {step + 1}/{num_prune_iter} |=== ")
             print(f"Name                            Freezed   Active    Total   Active(%)")
@@ -163,7 +168,7 @@ class IterativePruning():
                     active_per = (active / total) * 100
                     sum_freezed, sum_active, sum_total = sum_freezed + freezed, sum_active + active, sum_total + total
                     self.stats_tracker.add_layer(name,  freezed, active, total, active_per)
-                    print(f"{name:30} {freezed:8} {active:8} {total:8} {active_per:10.2f}%")
+                    #print(f"{name:30} {freezed:8} {active:8} {total:8} {active_per:10.2f}%")
                     i += 1
 
             sum_active_per = (sum_active / sum_total) * 100
@@ -176,8 +181,8 @@ class IterativePruning():
 
             self.stats_tracker.add_test_acc(acc)
             filename = f"model_{step + 1}_a{acc :.1f}_p{sum_active_per :.2f}".replace(".","_")
-            torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
-            self.prune_weights_shufflenet_v2_x1_0(prune_per)
+            #torch.save(self.model, self.model_filepath + "/" + filename + ".pt")
+            self.prune_weights_resnet18(prune_per)
 
         self.stats_tracker.save_to_file(self.model_filepath + "/stats.json")
 
